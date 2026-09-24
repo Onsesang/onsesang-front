@@ -176,7 +176,7 @@
   flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain;
   padding: 6px 16px 12px; display: flex; flex-direction: column; gap: 12px;
 }
-.msg-row { display: flex; justify-content: flex-start; }
+.msg-row { display: flex; align-items: flex-end; gap: 2px; justify-content: flex-start; }
 .msg-row[data-role="user"] { justify-content: flex-end; }
 .bubble {
   max-width: 84%; padding: 11px 14px; border-radius: var(--radius-md);
@@ -210,7 +210,24 @@
 }
 .composer .input { flex: 1; min-width: 0; }
 .composer .mic { width: 40px; height: 40px; padding: 0; border-color: var(--color-divider); color: var(--color-neutral-800); }
-.composer .mic.is-on { border-color: var(--color-accent); color: var(--color-accent); }
+.composer .mic.is-listening {
+  border-color: var(--color-accent); background: var(--color-accent); color: var(--color-bg);
+  animation: listening 1.4s ease-out infinite;
+}
+.speak-btn { flex: none; opacity: .7; }
+.speak-btn:hover, .speak-btn.is-speaking { opacity: 1; color: var(--color-accent); }
+.composer .input.is-listening { border-color: var(--color-accent); }
+.stt-error {
+  flex: none; display: flex; align-items: center; gap: 8px; margin: 0 16px 8px; padding: 8px 12px;
+  border: 1px solid var(--color-neutral-300); border-radius: var(--radius-md);
+  font-size: 12px; color: var(--color-neutral-800);
+}
+.stt-error .btn { margin-left: auto; font-size: 12px; padding-block: 2px; }
+@keyframes listening {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 45%, transparent); }
+  100% { box-shadow: 0 0 0 10px transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .composer .mic.is-listening { animation: none; } }
 .composer .send { width: 40px; height: 40px; }
 
 /* compact-only chrome */

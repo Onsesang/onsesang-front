@@ -20,7 +20,6 @@ const INITIAL_PREFS: Pref[] = [
 
 function useStoreValue() {
   const [picked, setPicked] = useState<Record<string, boolean>>({});
-  const [voice, setVoice] = useState(false);
   const [sessionId, setSessionId] = useState("s_8c41");
   const [msgs, setMsgs] = useState<Msg[]>(INITIAL_MSGS);
   const [typing, setTyping] = useState(false);
@@ -78,7 +77,10 @@ function useStoreValue() {
 
   return {
     picked, togglePick, clearVoicePicks,
-    voice, toggleVoice: () => setVoice((v) => !v),
+    // Voice settings come from onboarding step 3 and stay editable from the chat header.
+    ttsEnabled: !!picked.tts,
+    toggleTts: () => togglePick("tts"),
+    speechRate: picked.speed ? 1.2 : 1,
     sessionId, setSessionId, newSession,
     msgs, typing, send,
     filter, setFilter,
