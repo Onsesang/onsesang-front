@@ -126,7 +126,7 @@ function useStoreValue() {
   // Tell the user when requests move between the main and the fallback server.
   useEffect(() => {
     onServerSwitch((role) => notify(role === "fallback"
-      ? "메인 서버에 연결할 수 없어 예비 서버로 전환했어요. 방금 한 요청은 다시 시도해 주세요."
+      ? "메인 서버에 연결할 수 없어 예비 서버로 전환했어요."
       : "메인 서버가 복구되어 다시 연결했어요."));
     return () => onServerSwitch(null);
   }, [notify]);

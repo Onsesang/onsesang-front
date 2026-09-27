@@ -40,6 +40,7 @@ async function maybeReturnToMain() {
   lastMainProbe = Date.now();
   try {
     const res = await fetch(`${MAIN_BASE}${PREFIX}/health`, { cache: "no-store", signal: AbortSignal.timeout(3000) });
+    await res.body?.cancel(); // only the status matters
     if (res.ok) switchTo(MAIN_BASE);
   } catch { /* still down */ }
 }
