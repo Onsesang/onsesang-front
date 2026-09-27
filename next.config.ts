@@ -2,6 +2,11 @@ import type { NextConfig } from "next";
 import { BACKEND_ORIGIN } from "./lib/api/config";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // The proxy below cuts requests off at 30s by default; a chat turn may take longer and the
+    // client allows 60s (lib/api/endpoints.ts), so let the client's timeout decide.
+    proxyTimeout: 65_000,
+  },
   async redirects() {
     return [
       { source: "/", destination: "/signup", permanent: false },
