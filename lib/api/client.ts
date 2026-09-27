@@ -142,8 +142,10 @@ async function request<T>(
   }
 
   const data = await res.json().catch(() => null);
-  // A Funnel whose backend is stopped answers 502 with no JSON body of ours.
-  if ([502, 503, 504].includes(res.status) && !(data as { error?: unknown } | null)?.error) {
+  // A 5xx without our JSON error body comes from something in front of a stopped backend:
+  // Funnel answers 502, the same-origin Next proxy 500 (e.g. while the A100 restarts after a
+  // DB copy). Our backend itself always answers with {"error": ...}.
+  if (res.status >= 500 && !(data as { error?: unknown } | null)?.error) {
     throw new ApiError(res.status, "server_unavailable", "");
   }
   if (!res.ok) {
