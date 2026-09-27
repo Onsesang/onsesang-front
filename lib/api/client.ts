@@ -3,15 +3,51 @@
 // Thin fetch wrapper for the agent backend: Bearer auth, JSON, timeouts and a
 // single ApiError shape. Never log tokens or request bodies (spec: 오류 형식).
 
-import { BACKEND_ORIGIN } from "./config";
+import { BACKEND_ORIGIN, FALLBACK_ORIGIN } from "./config";
 
 // Development: same-origin /agent/v1, proxied by next.config.ts, because the backend's
 // CORS list only allows :3000 and the Vercel domain (this dev server may run elsewhere).
 // Production: the browser calls the backend directly so per-IP rate limits (login,
 // register) apply to each user rather than to Vercel's shared server IPs.
-export const API_BASE =
+const MAIN_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? (process.env.NODE_ENV === "production" ? BACKEND_ORIGIN : "");
+// Failover happens in the browser, so only when it calls the backend directly; the same-origin
+// proxy (MAIN_BASE "") has a single target.
+const FALLBACK_BASE = MAIN_BASE ? (process.env.NEXT_PUBLIC_API_FALLBACK_URL ?? FALLBACK_ORIGIN) : "";
 const PREFIX = "/agent/v1";
+const MAIN_PROBE_INTERVAL_MS = 60_000;
+
+let activeBase = MAIN_BASE;
+let lastMainProbe = 0;
+
+export type ServerRole = "main" | "fallback";
+let serverSwitchHandler: ((role: ServerRole) => void) | null = null;
+/** Called when requests move to the fallback server or back to the main one. */
+export function onServerSwitch(handler: ((role: ServerRole) => void) | null) {
+  serverSwitchHandler = handler;
+}
+
+function switchTo(base: string) {
+  if (base === activeBase) return;
+  activeBase = base;
+  lastMainProbe = Date.now();
+  serverSwitchHandler?.(base === MAIN_BASE ? "main" : "fallback");
+}
+
+// While on the fallback, look at most once a minute whether the main server is back.
+async function maybeReturnToMain() {
+  if (activeBase === MAIN_BASE || Date.now() - lastMainProbe < MAIN_PROBE_INTERVAL_MS) return;
+  lastMainProbe = Date.now();
+  try {
+    const res = await fetch(`${MAIN_BASE}${PREFIX}/health`, { cache: "no-store", signal: AbortSignal.timeout(3000) });
+    if (res.ok) switchTo(MAIN_BASE);
+  } catch { /* still down */ }
+}
+
+/** The server is gone, not refusing: no connection, or the tunnel answering for a stopped backend. */
+function serverUnavailable(e: unknown) {
+  return e instanceof ApiError && (e.code === "network" || e.code === "server_unavailable");
+}
 
 const TOKEN_KEY = "onsesang.token";
 
@@ -62,7 +98,25 @@ type RequestOptions = {
   timeoutMs?: number;
 };
 
-export async function api<T>(path: string, { method = "GET", body, auth = true, timeoutMs = 15000 }: RequestOptions = {}): Promise<T> {
+export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  await maybeReturnToMain();
+  const base = activeBase;
+  try {
+    return await request<T>(base, path, options);
+  } catch (e) {
+    if (!FALLBACK_BASE || base !== MAIN_BASE || !serverUnavailable(e)) throw e;
+    switchTo(FALLBACK_BASE);
+    // Only reads are sent again: a chat turn or a cart change must not run twice (spec 서버 전환).
+    if ((options.method ?? "GET") !== "GET") throw e;
+    return request<T>(FALLBACK_BASE, path, options);
+  }
+}
+
+async function request<T>(
+  base: string,
+  path: string,
+  { method = "GET", body, auth = true, timeoutMs = 15000 }: RequestOptions,
+): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const token = auth ? getToken() : null;
@@ -72,7 +126,7 @@ export async function api<T>(path: string, { method = "GET", body, auth = true, 
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${PREFIX}${path}`, {
+    res = await fetch(`${base}${PREFIX}${path}`, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -87,6 +141,10 @@ export async function api<T>(path: string, { method = "GET", body, auth = true, 
   }
 
   const data = await res.json().catch(() => null);
+  // A Funnel whose backend is stopped answers 502 with no JSON body of ours.
+  if ([502, 503, 504].includes(res.status) && !(data as { error?: unknown } | null)?.error) {
+    throw new ApiError(res.status, "server_unavailable", "");
+  }
   if (!res.ok) {
     const err = (data as { error?: { code?: string; message?: string } } | null)?.error;
     const retry = Number(res.headers.get("Retry-After"));
@@ -120,6 +178,7 @@ export function errorMessage(e: unknown): string {
     case "timeout":
       return "응답이 너무 오래 걸려요. 잠시 후 다시 시도해 주세요.";
     case "network":
+    case "server_unavailable":
       return "서버에 연결할 수 없어요. 인터넷 연결을 확인하거나 잠시 후 다시 시도해 주세요.";
     default:
       return "문제가 생겼어요. 잠시 후 다시 시도해 주세요.";

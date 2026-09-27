@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { GREETING, STEPS } from "./data";
-import { ApiError, errorMessage, getToken, onUnauthorized, setToken } from "./api/client";
+import { ApiError, errorMessage, getToken, onServerSwitch, onUnauthorized, setToken } from "./api/client";
 import * as API from "./api/endpoints";
 import type {
   Cart, OnboardingAnswers, Preference, Product, ProductPage, SessionListItem, User,
@@ -122,6 +122,14 @@ function useStoreValue() {
     setCart(null);
     setPrefs(null);
   }, [applyPicks]);
+
+  // Tell the user when requests move between the main and the fallback server.
+  useEffect(() => {
+    onServerSwitch((role) => notify(role === "fallback"
+      ? "메인 서버에 연결할 수 없어 예비 서버로 전환했어요. 방금 한 요청은 다시 시도해 주세요."
+      : "메인 서버가 복구되어 다시 연결했어요."));
+    return () => onServerSwitch(null);
+  }, [notify]);
 
   // Restore the signed-in user from a saved token; any 401 later drops back to anonymous.
   useEffect(() => {
