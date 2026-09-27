@@ -59,9 +59,9 @@ export default function Onboarding({ index }: { index: number }) {
               <button
                 type="button"
                 className="btn btn-secondary plain"
-                onClick={() => {
+                onClick={async () => {
                   clearVoicePicks();
-                  completeOnboarding();
+                  await completeOnboarding(); // the product list is filtered by the saved answers
                   router.push("/products");
                 }}
               >
@@ -70,9 +70,20 @@ export default function Onboarding({ index }: { index: number }) {
             )}
             <span className="spacer" />
             <Link className="btn btn-secondary" href={prevHref}>이전</Link>
-            <Link className="btn btn-primary" href={nextHref} onClick={isLast ? () => { completeOnboarding(); } : undefined}>
-              {isLast ? "시작하기" : "다음"}
-            </Link>
+            {isLast ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={async () => {
+                  await completeOnboarding(); // the product list is filtered by the saved answers
+                  router.push(nextHref);
+                }}
+              >
+                시작하기
+              </button>
+            ) : (
+              <Link className="btn btn-primary" href={nextHref}>다음</Link>
+            )}
           </div>
         </div>
       </div>

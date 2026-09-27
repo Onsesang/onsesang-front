@@ -34,14 +34,16 @@ const LEGACY_PICKS_KEY = "onsesang.picks"; // device-wide picks from before the 
 const picksKey = (userId: string) => `onsesang.picks.${userId}`;
 const currentKey = (userId: string) => `onsesang.currentSession.${userId}`;
 
-// One answer group per onboarding step, in STEPS order.
+// One answer group per onboarding step (Step.key).
 function toAnswers(picks: Picks): OnboardingAnswers {
-  const [categories, tactile, voice] = STEPS.map((step) => step.options.filter((o) => picks[o.id]).map((o) => o.id));
-  return { categories, tactile, voice };
+  const answers: OnboardingAnswers = { gender: [], categories: [], tactile: [], voice: [] };
+  for (const step of STEPS) answers[step.key] = step.options.filter((o) => picks[o.id]).map((o) => o.id);
+  return answers;
 }
 function fromAnswers(answers: OnboardingAnswers): Picks {
-  return Object.fromEntries([...answers.categories, ...answers.tactile, ...answers.voice].map((id) => [id, true]));
+  return Object.fromEntries(STEPS.flatMap((step) => answers[step.key] ?? []).map((id) => [id, true]));
 }
+const stepOf = (id: string) => STEPS.find((step) => step.options.some((o) => o.id === id));
 
 const toSummary = (s: SessionListItem): SessionSummary => ({ id: s.session_id, title: s.title, updatedAt: s.updated_at });
 
@@ -71,6 +73,7 @@ function useStoreValue() {
   const onboardingDone = useRef(false);
   const picksDirty = useRef(false); // changed here before GET /onboarding answered
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedGender = useRef(""); // gender answer the server has, to notice changes
   const applyPicks = useCallback((next: Picks) => {
     pickedRef.current = next;
     setPicked(next);
@@ -146,6 +149,7 @@ function useStoreValue() {
       .then((o) => {
         if (cancelled) return;
         onboardingDone.current = o.completed;
+        savedGender.current = o.answers.gender?.[0] ?? "";
         const legacy = readJSON<Picks>(LEGACY_PICKS_KEY, {});
         writeJSON(LEGACY_PICKS_KEY, null);
         if (picksDirty.current) return; // the pending save carries the newer picks
@@ -212,6 +216,15 @@ function useStoreValue() {
   }, []);
 
   /* ── picks ── */
+  // The server filters the product list by the saved gender, so reload it when that changes.
+  const onboardingSaved = useCallback((answers: OnboardingAnswers) => {
+    const gender = answers.gender[0] ?? "";
+    if (gender !== savedGender.current) {
+      savedGender.current = gender;
+      setCatalog(null);
+    }
+    refreshPrefs();
+  }, [refreshPrefs]);
   // Toggles are batched into one PUT /onboarding shortly after the last change.
   const updatePicks = useCallback((fn: (p: Picks) => Picks) => {
     if (!user) return;
@@ -222,28 +235,38 @@ function useStoreValue() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       saveTimer.current = null;
-      API.onboarding.save(toAnswers(next), onboardingDone.current)
-        .then(() => refreshPrefs())
+      const answers = toAnswers(next);
+      API.onboarding.save(answers, onboardingDone.current)
+        .then(() => onboardingSaved(answers))
         .catch(() => notify("취향 설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요."));
     }, 500);
-  }, [user, applyPicks, notify, refreshPrefs]);
+  }, [user, applyPicks, notify, onboardingSaved]);
   /** Called when the last onboarding step is finished; saves right away. */
   const completeOnboarding = useCallback(async () => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = null;
     onboardingDone.current = true;
+    const answers = toAnswers(pickedRef.current);
     try {
-      await API.onboarding.save(toAnswers(pickedRef.current), true);
+      await API.onboarding.save(answers, true);
     } catch (e) {
       notify(errorMessage(e));
       return;
     }
-    refreshPrefs();
-  }, [notify, refreshPrefs]);
-  const togglePick = useCallback((id: string) => updatePicks((p) => ({ ...p, [id]: !p[id] })), [updatePicks]);
+    onboardingSaved(answers);
+  }, [notify, onboardingSaved]);
+  // A single-choice step (gender) keeps exactly the option just picked.
+  const togglePick = useCallback((id: string) => updatePicks((p) => {
+    const step = stepOf(id);
+    if (!step?.single) return { ...p, [id]: !p[id] };
+    const next = { ...p };
+    step.options.forEach((o) => { delete next[o.id]; });
+    next[id] = true;
+    return next;
+  }), [updatePicks]);
   const clearVoicePicks = useCallback(() => updatePicks((p) => {
     const next = { ...p };
-    STEPS[2].options.forEach((o) => { delete next[o.id]; });
+    STEPS.find((step) => step.key === "voice")?.options.forEach((o) => { delete next[o.id]; });
     return next;
   }), [updatePicks]);
 

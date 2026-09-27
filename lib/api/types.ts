@@ -36,6 +36,8 @@ export type ProductPage = {
   total_pages: number;
   has_previous: boolean;
   has_next: boolean;
+  /** Gender filter the server applied ("women" / "men"), null for both. */
+  gender?: string | null;
 };
 
 export type TactileStrongest = { class: string; label_ko: string; probability: number };
@@ -70,7 +72,7 @@ export type SessionListItem = {
 };
 
 /** Option ids picked on each onboarding step (ids are defined in lib/data.ts). */
-export type OnboardingAnswers = { categories: string[]; tactile: string[]; voice: string[] };
+export type OnboardingAnswers = { gender: string[]; categories: string[]; tactile: string[]; voice: string[] };
 
 export type Onboarding = {
   answers: OnboardingAnswers;
