@@ -2,8 +2,8 @@
 
 import { api } from "./client";
 import type {
-  AgentReply, AuthResponse, Cart, EventType, Preference, PreferenceDirection,
-  ProductDetail, ProductPage, Session, User,
+  AgentReply, AuthResponse, Cart, EventType, Onboarding, OnboardingAnswers, Preference,
+  PreferenceDirection, ProductDetail, ProductPage, Session, SessionListItem, User,
 } from "./types";
 
 const enc = encodeURIComponent;
@@ -23,11 +23,19 @@ export const products = {
 };
 
 export const sessions = {
+  list: (limit = 30) => api<{ items: SessionListItem[] }>(`/sessions?limit=${limit}`),
   create: () => api<Session>("/sessions", { method: "POST", body: {} }),
   get: (id: string) => api<Session>(`/sessions/${enc(id)}`),
   // Chat turns take ~3s (sometimes 10s+); spec recommends a 60s timeout.
   send: (id: string, message: string) =>
     api<AgentReply>(`/sessions/${enc(id)}/messages`, { method: "POST", body: { message }, timeoutMs: 60000 }),
+};
+
+export const onboarding = {
+  get: () => api<Onboarding>("/onboarding"),
+  // Replaces all answers; send every step's picks, not just the changed one.
+  save: (answers: OnboardingAnswers, completed: boolean) =>
+    api<Onboarding>("/onboarding", { method: "PUT", body: { answers, completed } }),
 };
 
 export const preferences = {

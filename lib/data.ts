@@ -4,8 +4,9 @@
 export type StepOption = { id: string; label: string; note: string };
 export type Step = { title: string; desc: string; options: StepOption[] };
 
-// Onboarding picks stay on this device: the API has no endpoint for them. Preferences the
-// agent learns from chat are saved server-side automatically (see 내 취향).
+// Onboarding picks are saved per user with PUT /onboarding (option ids, grouped by step);
+// step 2 ids are Last2 tactile classes and the server adds them to 내 취향 as 직접 설정.
+// Preferences the agent learns from chat are saved server-side automatically (see 내 취향).
 export const STEPS: Step[] = [
   { title: "어떤 옷을 자주 보세요?", desc: "대화를 시작할 때 참고할게요.",
     options: [{ id: "knit", label: "니트·스웨트", note: "게이지·중량" }, { id: "shirt", label: "셔츠", note: "조직·중량" }, { id: "pants", label: "팬츠", note: "신축·기장" }, { id: "outer", label: "아우터", note: "보온·발수" }, { id: "dress", label: "원피스", note: "두께·비침" }, { id: "setup", label: "셋업", note: "재킷+팬츠" }] },

@@ -59,6 +59,26 @@ export type Session = {
   messages?: { role: string; content: string; created_at: string }[];
 };
 
+/** One row of GET /sessions: conversations with at least one message, newest first. */
+export type SessionListItem = {
+  session_id: string;
+  title: string;
+  last_message: string;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Option ids picked on each onboarding step (ids are defined in lib/data.ts). */
+export type OnboardingAnswers = { categories: string[]; tactile: string[]; voice: string[] };
+
+export type Onboarding = {
+  answers: OnboardingAnswers;
+  completed: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 export type AgentAction =
   | "search_products"
   | "get_product_detail"

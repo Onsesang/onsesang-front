@@ -4,7 +4,9 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { GREETING, STEPS } from "./data";
 import { ApiError, errorMessage, getToken, onUnauthorized, setToken } from "./api/client";
 import * as API from "./api/endpoints";
-import type { Cart, Preference, Product, ProductPage, User } from "./api/types";
+import type {
+  Cart, OnboardingAnswers, Preference, Product, ProductPage, SessionListItem, User,
+} from "./api/types";
 
 export type Msg = {
   id: number;
@@ -21,11 +23,27 @@ export type AuthStatus = "unknown" | "authenticated" | "anonymous";
 let msgSeq = 1;
 const greeting = (): Msg => ({ id: msgSeq++, role: "bot", text: GREETING });
 
-/* ───────────── per-device storage (sessions have no list API; spec 대화 API) ───────────── */
+/* ───────────── storage ───────────── */
+// Conversations (GET /sessions) and onboarding picks (GET/PUT /onboarding) live on the server.
+// This device keeps which conversation was open last, and a per-user copy of the picks so
+// voice settings apply before GET /onboarding answers.
 
-const PICKS_KEY = "onsesang.picks";
-const sessionsKey = (userId: string) => `onsesang.sessions.${userId}`;
+type Picks = Record<string, boolean>;
+
+const LEGACY_PICKS_KEY = "onsesang.picks"; // device-wide picks from before the onboarding API
+const picksKey = (userId: string) => `onsesang.picks.${userId}`;
 const currentKey = (userId: string) => `onsesang.currentSession.${userId}`;
+
+// One answer group per onboarding step, in STEPS order.
+function toAnswers(picks: Picks): OnboardingAnswers {
+  const [categories, tactile, voice] = STEPS.map((step) => step.options.filter((o) => picks[o.id]).map((o) => o.id));
+  return { categories, tactile, voice };
+}
+function fromAnswers(answers: OnboardingAnswers): Picks {
+  return Object.fromEntries([...answers.categories, ...answers.tactile, ...answers.voice].map((id) => [id, true]));
+}
+
+const toSummary = (s: SessionListItem): SessionSummary => ({ id: s.session_id, title: s.title, updatedAt: s.updated_at });
 
 function readJSON<T>(key: string, fallback: T): T {
   try {
@@ -47,8 +65,16 @@ function useStoreValue() {
   const [user, setUser] = useState<User | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus>("unknown");
 
-  /* ── onboarding picks (device-local) ── */
-  const [picked, setPicked] = useState<Record<string, boolean>>({});
+  /* ── onboarding picks (server, cached per user on this device) ── */
+  const [picked, setPicked] = useState<Picks>({});
+  const pickedRef = useRef<Picks>({});
+  const onboardingDone = useRef(false);
+  const picksDirty = useRef(false); // changed here before GET /onboarding answered
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const applyPicks = useCallback((next: Picks) => {
+    pickedRef.current = next;
+    setPicked(next);
+  }, []);
 
   /* ── catalog & agent results ── */
   const [catalog, setCatalog] = useState<ProductPage | null>(null);
@@ -79,6 +105,11 @@ function useStoreValue() {
   }, []);
 
   const resetUserData = useCallback(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = null;
+    onboardingDone.current = false;
+    picksDirty.current = false;
+    applyPicks({});
     setUser(null);
     setCatalog(null);
     setResults(null);
@@ -87,11 +118,10 @@ function useStoreValue() {
     setMsgs([greeting()]);
     setCart(null);
     setPrefs(null);
-  }, []);
+  }, [applyPicks]);
 
   // Restore the signed-in user from a saved token; any 401 later drops back to anonymous.
   useEffect(() => {
-    setPicked(readJSON(PICKS_KEY, {}));
     onUnauthorized(() => {
       resetUserData();
       setAuthStatus("anonymous");
@@ -106,10 +136,33 @@ function useStoreValue() {
     return () => onUnauthorized(null);
   }, [resetUserData]);
 
-  // Load this user's saved conversations and reopen the last one.
+  // Load this user's onboarding picks and conversations, and reopen the last conversation.
   useEffect(() => {
     if (!user) return;
-    setSessionList(readJSON(sessionsKey(user.user_id), []));
+    const userId = user.user_id;
+    let cancelled = false;
+    applyPicks(readJSON(picksKey(userId), {}));
+    API.onboarding.get()
+      .then((o) => {
+        if (cancelled) return;
+        onboardingDone.current = o.completed;
+        const legacy = readJSON<Picks>(LEGACY_PICKS_KEY, {});
+        writeJSON(LEGACY_PICKS_KEY, null);
+        if (picksDirty.current) return; // the pending save carries the newer picks
+        if (o.updated_at) {
+          applyPicks(fromAnswers(o.answers));
+          writeJSON(picksKey(userId), pickedRef.current);
+        } else if (Object.values(legacy).some(Boolean)) {
+          // Nothing on the server yet: keep what this device showed before the API existed.
+          applyPicks(legacy);
+          writeJSON(picksKey(userId), legacy);
+          API.onboarding.save(toAnswers(legacy), false).catch(() => {});
+        }
+      })
+      .catch(() => { /* cached picks stay in effect */ });
+    API.sessions.list()
+      .then(({ items }) => { if (!cancelled) setSessionList(items.map(toSummary)); })
+      .catch(() => { /* the list stays empty; sending still works */ });
     const current = readJSON<string | null>(currentKey(user.user_id), null);
     if (!current) return;
     API.sessions.get(current)
@@ -121,7 +174,8 @@ function useStoreValue() {
         setMsgs(restored.length ? restored : [greeting()]);
       })
       .catch(() => writeJSON(currentKey(user.user_id), null));
-  }, [user]);
+    return () => { cancelled = true; };
+  }, [user, applyPicks]);
 
   const signIn = useCallback(async (res: { user: User; access_token: string }, remember: boolean) => {
     setToken(res.access_token, remember);
@@ -130,8 +184,10 @@ function useStoreValue() {
     setAuthStatus("authenticated");
   }, [resetUserData]);
 
+  /** Resolves to whether this user already finished onboarding. */
   const login = useCallback(async (email: string, password: string, remember: boolean) => {
     await signIn(await API.auth.login(email, password), remember);
+    return API.onboarding.get().then((o) => o.completed, () => false);
   }, [signIn]);
 
   const register = useCallback(async (email: string, password: string, name: string, remember: boolean) => {
@@ -145,14 +201,45 @@ function useStoreValue() {
     setAuthStatus("anonymous");
   }, [resetUserData]);
 
-  /* ── picks ── */
-  const updatePicks = useCallback((fn: (p: Record<string, boolean>) => Record<string, boolean>) => {
-    setPicked((p) => {
-      const next = fn(p);
-      writeJSON(PICKS_KEY, next);
-      return next;
-    });
+  // Defined before picks: onboarding saves turn tactile picks into preferences (직접 설정).
+  const refreshPrefs = useCallback(async () => {
+    setPrefsError(null);
+    try {
+      setPrefs((await API.preferences.list()).items);
+    } catch (e) {
+      setPrefsError(errorMessage(e));
+    }
   }, []);
+
+  /* ── picks ── */
+  // Toggles are batched into one PUT /onboarding shortly after the last change.
+  const updatePicks = useCallback((fn: (p: Picks) => Picks) => {
+    if (!user) return;
+    const next = fn(pickedRef.current);
+    applyPicks(next);
+    picksDirty.current = true;
+    writeJSON(picksKey(user.user_id), next);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = null;
+      API.onboarding.save(toAnswers(next), onboardingDone.current)
+        .then(() => refreshPrefs())
+        .catch(() => notify("취향 설정을 저장하지 못했어요. 잠시 후 다시 시도해 주세요."));
+    }, 500);
+  }, [user, applyPicks, notify, refreshPrefs]);
+  /** Called when the last onboarding step is finished; saves right away. */
+  const completeOnboarding = useCallback(async () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = null;
+    onboardingDone.current = true;
+    try {
+      await API.onboarding.save(toAnswers(pickedRef.current), true);
+    } catch (e) {
+      notify(errorMessage(e));
+      return;
+    }
+    refreshPrefs();
+  }, [notify, refreshPrefs]);
   const togglePick = useCallback((id: string) => updatePicks((p) => ({ ...p, [id]: !p[id] })), [updatePicks]);
   const clearVoicePicks = useCallback(() => updatePicks((p) => {
     const next = { ...p };
@@ -209,14 +296,6 @@ function useStoreValue() {
   }, [notify, quantityOf, setQuantity]);
 
   /* ── preferences ── */
-  const refreshPrefs = useCallback(async () => {
-    setPrefsError(null);
-    try {
-      setPrefs((await API.preferences.list()).items);
-    } catch (e) {
-      setPrefsError(errorMessage(e));
-    }
-  }, []);
   const togglePrefActive = useCallback(async (p: Preference) => {
     try {
       const updated = await API.preferences.update(p.preference_id, { active: p.active === false });
@@ -241,14 +320,13 @@ function useStoreValue() {
     if (!user) return;
     setSessionList((list) => {
       const existing = list.find((s) => s.id === id);
+      // Same title rule as GET /sessions, so the row does not change on the next load.
       const entry: SessionSummary = {
         id,
-        title: existing?.title ?? (firstMessage ? firstMessage.slice(0, 40) : "새 대화"),
+        title: existing?.title ?? (firstMessage?.replace(/\s+/g, " ").trim().slice(0, 40) || "새 대화"),
         updatedAt: new Date().toISOString(),
       };
-      const next = [entry, ...list.filter((s) => s.id !== id)].slice(0, 30);
-      writeJSON(sessionsKey(user.user_id), next);
-      return next;
+      return [entry, ...list.filter((s) => s.id !== id)].slice(0, 30);
     });
     writeJSON(currentKey(user.user_id), id);
   }, [user]);
@@ -313,11 +391,7 @@ function useStoreValue() {
       writeJSON(currentKey(user.user_id), s.session_id);
     } catch (e) {
       if (e instanceof ApiError && e.code === "not_found") {
-        setSessionList((list) => {
-          const next = list.filter((s) => s.id !== id);
-          writeJSON(sessionsKey(user.user_id), next);
-          return next;
-        });
+        setSessionList((list) => list.filter((s) => s.id !== id));
         notify("이 대화는 더 이상 열 수 없어요. 새 대화를 시작해 주세요.");
       } else {
         notify(errorMessage(e));
@@ -329,7 +403,7 @@ function useStoreValue() {
 
   return {
     user, authStatus, login, register, logout,
-    picked, togglePick, clearVoicePicks,
+    picked, togglePick, clearVoicePicks, completeOnboarding,
     // Voice settings come from onboarding step 3 and stay editable from the chat header.
     ttsEnabled: !!picked.tts,
     toggleTts: () => togglePick("tts"),

@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 
 export default function Onboarding({ index }: { index: number }) {
   const router = useRouter();
-  const { picked, togglePick, clearVoicePicks } = useStore();
+  const { picked, togglePick, clearVoicePicks, completeOnboarding } = useStore();
   const step = STEPS[index];
   const total = STEPS.length;
   const isLast = index === total - 1;
@@ -61,6 +61,7 @@ export default function Onboarding({ index }: { index: number }) {
                 className="btn btn-secondary plain"
                 onClick={() => {
                   clearVoicePicks();
+                  completeOnboarding();
                   router.push("/products");
                 }}
               >
@@ -69,7 +70,9 @@ export default function Onboarding({ index }: { index: number }) {
             )}
             <span className="spacer" />
             <Link className="btn btn-secondary" href={prevHref}>이전</Link>
-            <Link className="btn btn-primary" href={nextHref}>{isLast ? "시작하기" : "다음"}</Link>
+            <Link className="btn btn-primary" href={nextHref} onClick={isLast ? () => { completeOnboarding(); } : undefined}>
+              {isLast ? "시작하기" : "다음"}
+            </Link>
           </div>
         </div>
       </div>
