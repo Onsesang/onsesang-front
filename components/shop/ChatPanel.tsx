@@ -1,29 +1,36 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   ArrowUpIcon,
   MicrophoneIcon,
+  NotePencilIcon,
   SlidersHorizontalIcon,
   SpeakerHighIcon,
   SpeakerSlashIcon,
   StopIcon,
 } from "@phosphor-icons/react";
-import { BY_ID, SCRIPT, won } from "@/lib/data";
-import { useStore } from "@/lib/store";
+import { QUICK_PROMPTS } from "@/lib/data";
+import { categoryLabel } from "@/lib/labels";
+import { useStore, type Msg } from "@/lib/store";
 import { useOverlayNav } from "@/lib/overlay";
-import type { Msg } from "@/lib/store";
 import { useSpeechToText, useTextToSpeech } from "@/lib/speech";
 
-// What 읽어주기 says for a message: the reply plus the product cards shown inside the bubble.
+// How many of a search turn's products are listed inside the bubble; the rest are in the list pane.
+const REFS_IN_BUBBLE = 3;
+
+// What 읽어주기 says: the reply plus the numbered products shown inside the bubble.
 function spokenText(m: Msg) {
-  const items = (m.ids ?? []).map((id) => `${BY_ID[id].name}, ${won(BY_ID[id].price)}.`);
-  return items.length ? `${m.text} 추천 상품입니다. ${items.join(" ")}` : m.text;
+  const shown = (m.products ?? []).slice(0, REFS_IN_BUBBLE);
+  if (!shown.length) return m.text;
+  const items = shown.map((p, i) => `${i + 1}번, ${categoryLabel(p.category)}. ${p.title}.`);
+  return `${m.text} 추천 상품입니다. ${items.join(" ")}`;
 }
 
 export default function ChatPanel() {
   const overlay = useOverlayNav();
-  const { msgs, typing, send, sessionId, ttsEnabled, toggleTts, speechRate } = useStore();
+  const { msgs, sending, send, sessionId, sessionList, newSession, ttsEnabled, toggleTts, speechRate } = useStore();
   const [input, setInput] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -47,30 +54,32 @@ export default function ChatPanel() {
   useEffect(() => {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [msgs, typing]);
+  }, [msgs, sending]);
 
-  // Read each new bot reply aloud when 읽어주기 is on. Messages that were already
-  // on screen when the panel mounted are skipped.
+  // Read each new bot reply aloud when 읽어주기 is on. Messages already on screen
+  // when the panel mounted (or restored from a saved session) are skipped.
   const lastSeen = useRef(msgs[msgs.length - 1]?.id);
+  const lastUserSent = useRef(false);
   const { say, stop: stopTts } = tts;
   useEffect(() => {
     const last = msgs[msgs.length - 1];
     if (!last || last.id === lastSeen.current) return;
     lastSeen.current = last.id;
-    if (last.role === "bot" && ttsEnabled) say(last.id, spokenText(last));
+    if (last.role === "user") lastUserSent.current = true;
+    else if (lastUserSent.current && ttsEnabled && !last.error) say(last.id, spokenText(last));
   }, [msgs, ttsEnabled, say]);
 
   useEffect(() => {
     if (!ttsEnabled) stopTts();
   }, [ttsEnabled, stopTts]);
 
-  const submit = () => {
-    const text = input.trim();
-    if (!text) return;
+  const submit = (text: string) => {
+    if (!text.trim() || sending) return;
     send(text);
     setInput("");
   };
 
+  const title = sessionList.find((s) => s.id === sessionId)?.title ?? "새 대화";
   const micLabel = !stt.supported
     ? "이 브라우저는 음성 입력을 지원하지 않아요"
     : stt.listening ? "음성 입력 멈추기" : "음성으로 질문하기";
@@ -80,7 +89,7 @@ export default function ChatPanel() {
       <div className="chat-head">
         <div className="title">
           <strong className="display">대화</strong>
-          <span>세션 {sessionId}</span>
+          <span className="clamp-1">{title}</span>
         </div>
         <button
           type="button"
@@ -95,6 +104,14 @@ export default function ChatPanel() {
         </button>
         <button
           type="button"
+          className="btn btn-secondary btn-icon sm compact-only"
+          aria-label="새 대화"
+          onClick={newSession}
+        >
+          <NotePencilIcon weight="bold" size={15} />
+        </button>
+        <button
+          type="button"
           className="btn btn-secondary btn-icon sm compact-hide"
           aria-label="내 취향"
           onClick={() => overlay.open({ sheet: "prefs" })}
@@ -103,25 +120,36 @@ export default function ChatPanel() {
         </button>
       </div>
 
-      <div ref={scroller} className="chat-scroll" aria-live="polite">
+      {/* Spec: new replies in an aria-live="polite" region */}
+      <div ref={scroller} className="chat-scroll" aria-live="polite" aria-busy={sending}>
         {msgs.map((m) => {
           const speaking = tts.speakingId === m.id;
+          const products = m.products ?? [];
           return (
             <div key={m.id} className="msg-row" data-role={m.role}>
-              <div className="bubble">
+              <div className={`bubble${m.error ? " is-error" : ""}`} role={m.error ? "alert" : undefined}>
                 <span className="text">{m.text}</span>
-                {m.ids && m.ids.length > 0 && (
-                  <div className="refs">
-                    {m.ids.map((id) => (
-                      <button key={id} type="button" className="ref-btn" onClick={() => overlay.open({ product: id })}>
-                        <span className="name">{BY_ID[id].name}</span>
-                        <span className="price">{won(BY_ID[id].price)}</span>
-                      </button>
+                {products.length > 0 && (
+                  <ol className="refs">
+                    {products.slice(0, REFS_IN_BUBBLE).map((p, i) => (
+                      <li key={p.product_id}>
+                        <button type="button" className="ref-btn" onClick={() => overlay.open({ product: p.product_id, rank: i + 1 })}>
+                          <span className="ref-no">{i + 1}</span>
+                          <span className="name clamp-1">{p.title}</span>
+                        </button>
+                      </li>
                     ))}
-                  </div>
+                    {products.length > REFS_IN_BUBBLE && (
+                      <li>
+                        <Link className="ref-more" href="/products">
+                          {products.length}개 모두 목록에서 보기
+                        </Link>
+                      </li>
+                    )}
+                  </ol>
                 )}
               </div>
-              {m.role === "bot" && tts.supported && (
+              {m.role === "bot" && !m.error && tts.supported && (
                 <button
                   type="button"
                   className={`btn btn-ghost is-quiet btn-icon xs speak-btn${speaking ? " is-speaking" : ""}`}
@@ -134,17 +162,17 @@ export default function ChatPanel() {
             </div>
           );
         })}
-        {typing && (
-          <div className="typing" aria-label="답변 작성 중">
+        {sending && (
+          <div className="typing" role="status" aria-label="답변을 준비하고 있어요">
             <span /><span /><span />
           </div>
         )}
       </div>
 
       <div className="quick">
-        {SCRIPT.map((q) => (
-          <button key={q.user} type="button" className="btn btn-secondary" onClick={() => send(q.user, q)}>
-            {q.user}
+        {QUICK_PROMPTS.map((q) => (
+          <button key={q} type="button" className="btn btn-secondary" disabled={sending} onClick={() => submit(q)}>
+            {q}
           </button>
         ))}
       </div>
@@ -160,7 +188,7 @@ export default function ChatPanel() {
         className="composer"
         onSubmit={(e) => {
           e.preventDefault();
-          submit();
+          submit(input);
         }}
       >
         <label htmlFor="chat-input" className="sr-only">메시지</label>
@@ -171,6 +199,7 @@ export default function ChatPanel() {
           placeholder={stt.listening ? "듣고 있어요…" : "어떤 옷을 찾으시나요"}
           autoComplete="off"
           enterKeyHint="send"
+          maxLength={4000}
           value={input}
           onChange={(e) => setInput(e.target.value)}
         />
@@ -185,7 +214,7 @@ export default function ChatPanel() {
         >
           <MicrophoneIcon weight={stt.listening ? "fill" : "bold"} size={16} />
         </button>
-        <button type="submit" className="btn btn-primary btn-icon send" aria-label="보내기">
+        <button type="submit" className="btn btn-primary btn-icon send" aria-label="보내기" disabled={sending || !input.trim()}>
           <ArrowUpIcon weight="bold" size={15} />
         </button>
       </form>

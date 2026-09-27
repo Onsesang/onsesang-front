@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Onboarding from "@/components/Onboarding";
+import RequireAuth from "@/components/RequireAuth";
 import { STEPS } from "@/lib/data";
 
 export const dynamicParams = false;
@@ -15,5 +16,9 @@ export default async function OnboardingPage({ params }: PageProps<"/onboarding/
   const { step } = await params;
   const index = Number(step) - 1;
   if (!STEPS[index]) notFound();
-  return <Onboarding index={index} />;
+  return (
+    <RequireAuth>
+      <Onboarding index={index} />
+    </RequireAuth>
+  );
 }

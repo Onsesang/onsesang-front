@@ -1,24 +1,27 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CaretLeftIcon, CaretRightIcon, MinusIcon, PlusIcon, XIcon } from "@phosphor-icons/react";
-import { BY_ID, won, type Product } from "@/lib/data";
+import { MinusIcon, PlusIcon, XIcon } from "@phosphor-icons/react";
+import * as API from "@/lib/api/endpoints";
+import { errorMessage } from "@/lib/api/client";
+import type { ProductDetail } from "@/lib/api/types";
+import { categoryLabel, preferenceLabel, preferenceMeta, tactileSourceLabel } from "@/lib/labels";
 import { useStore } from "@/lib/store";
 import { resetOverlayHistory, useOverlayNav } from "@/lib/overlay";
-import ImageSlot from "@/components/ImageSlot";
+import ProductImage from "@/components/ProductImage";
 
 export default function Overlays() {
   const params = useSearchParams();
   const productId = params.get("product");
+  const rank = Number(params.get("rank")) || undefined;
   const sheet = params.get("sheet");
-  const product = productId ? BY_ID[productId] : undefined;
 
   useEffect(() => {
     if (!productId && !sheet) resetOverlayHistory();
   }, [productId, sheet]);
 
-  if (product) return <DetailDialog product={product} />;
+  if (productId) return <DetailDialog key={productId} productId={productId} rank={rank} />;
   if (sheet === "cart") return <CartDialog />;
   if (sheet === "prefs") return <PrefsDialog />;
   return null;
@@ -58,71 +61,121 @@ function CloseButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-const SHOTS = ["착용 컷", "정면", "소재 접사", "디테일"];
+// Guards against React StrictMode's dev double-mount sending the click twice.
+let lastClick = { id: "", at: 0 };
 
-function DetailDialog({ product }: { product: Product }) {
+function DetailDialog({ productId, rank }: { productId: string; rank?: number }) {
   const overlay = useOverlayNav();
-  const { cartAdd } = useStore();
-  const gallery = useRef<HTMLDivElement>(null);
-  const scrollGallery = (dir: 1 | -1) => {
-    const g = gallery.current;
-    const item = g?.firstElementChild as HTMLElement | null;
-    if (g) g.scrollBy({ left: dir * ((item?.offsetWidth ?? 214) + 8), behavior: "smooth" });
-  };
+  const { addToCart, quantityOf, cartBusy, sessionId } = useStore();
+  const [detail, setDetail] = useState<ProductDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    API.products.detail(productId)
+      .then((d) => { if (alive) setDetail(d); })
+      .catch((e) => { if (alive) setError(errorMessage(e)); });
+    return () => { alive = false; };
+  }, [productId]);
+
+  // product_click on open; product_dwell with the time actually spent when it closes.
+  useEffect(() => {
+    const opened = Date.now();
+    if (lastClick.id !== productId || opened - lastClick.at > 1000) {
+      lastClick = { id: productId, at: opened };
+      sendEvent("product_click", { rank });
+    }
+    return () => {
+      const dwell = Date.now() - opened;
+      if (dwell >= 500) sendEvent("product_dwell", { dwell_ms: Math.min(dwell, 300000) });
+    };
+    function sendEvent(type: "product_click" | "product_dwell", context: Record<string, number | undefined>) {
+      const clean = Object.fromEntries(Object.entries(context).filter(([, v]) => v !== undefined)) as Record<string, number>;
+      API.sendEvent(type, productId, { sessionId, context: Object.keys(clean).length ? clean : undefined });
+    }
+    // sessionId only labels the event; re-sending on session change would double count.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productId, rank]);
+
+  const product = detail?.product;
+  const profile = detail?.tactile_profile;
+  const source = tactileSourceLabel(profile?.source ?? product?.tactile_target_source);
+  const quantity = quantityOf(productId);
 
   return (
     <Dialog labelledBy="detail-title" onClose={overlay.close}>
       <div className="dialog-head">
         <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
-          <span className="caption">{product.brand}</span>
-          <h2 id="detail-title" className="dialog-title" style={{ margin: 0 }}>{product.name}</h2>
+          <span className="caption">
+            {rank ? `${rank}번 · ` : ""}{product ? categoryLabel(product.category) : "상품"}
+          </span>
+          <h2 id="detail-title" className="dialog-title" style={{ margin: 0 }}>
+            {product?.title ?? (error ? "상품을 불러오지 못했어요" : "불러오는 중…")}
+          </h2>
         </div>
         <CloseButton onClick={overlay.close} />
       </div>
 
-      <div className="gallery-wrap">
-        <div ref={gallery} className="gallery">
-          {SHOTS.map((label) => (
-            <div key={label} className="gallery-item">
-              <ImageSlot label={label} />
-            </div>
-          ))}
-        </div>
-        <button type="button" className="btn btn-secondary btn-icon sm gallery-nav prev" aria-label="이전 이미지" onClick={() => scrollGallery(-1)}>
-          <CaretLeftIcon weight="bold" size={15} />
-        </button>
-        <button type="button" className="btn btn-secondary btn-icon sm gallery-nav next" aria-label="다음 이미지" onClick={() => scrollGallery(1)}>
-          <CaretRightIcon weight="bold" size={15} />
-        </button>
-      </div>
+      {error && <p className="dialog-body" role="alert">{error}</p>}
 
-      <div className="detail-price">
-        <span className="price">{won(product.price)}</span>
-        <span className="rating">★ {product.rating} · 리뷰 {product.reviews}</span>
-      </div>
-
-      <dl className="spec-list" style={{ margin: 0 }}>
-        {product.specs.map((s) => (
-          <div key={s.k} className="spec">
-            <dt>{s.k}</dt>
-            <dd>{s.v}</dd>
+      {product && (
+        <>
+          <div className="detail-image">
+            <ProductImage product={product} eager />
           </div>
-        ))}
-      </dl>
 
-      <p className="dialog-body" style={{ lineHeight: 1.65 }}>{product.note}</p>
+          <section className="tactile" aria-labelledby="tactile-title">
+            <div className="tactile-head">
+              <h3 id="tactile-title">촉감</h3>
+              {source && <span className="tag tag-source">{source}</span>}
+            </div>
+            {profile?.strongest.length ? (
+              // Spec: show label_ko only — never the probability numbers.
+              <ul className="tactile-chips">
+                {profile.strongest.map((t) => <li key={t.class}>{t.label_ko.trim()}</li>)}
+              </ul>
+            ) : (
+              <p className="caption">촉감 정보가 아직 없어요.</p>
+            )}
+            {profile?.note && <p className="caption">{profile.note.trim()}</p>}
+          </section>
+
+          {detail.related.length > 0 && (
+            <section aria-label="비슷한 상품">
+              <h3 className="section-title">비슷한 상품</h3>
+              <ul className="related">
+                {detail.related.slice(0, 6).map((r) => (
+                  <li key={r.product_id}>
+                    <button
+                      type="button"
+                      className="ref-btn"
+                      onClick={() => {
+                        API.sendEvent("similar_product_click", r.product_id, { sessionId });
+                        overlay.swap({ product: r.product_id });
+                      }}
+                    >
+                      <span className="name">{r.title}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </>
+      )}
 
       <div className="dialog-actions">
         <button type="button" className="btn btn-secondary" onClick={overlay.close}>닫기</button>
         <button
           type="button"
           className="btn btn-primary"
-          onClick={() => {
-            cartAdd(product.id);
+          disabled={!product || cartBusy === productId}
+          onClick={async () => {
+            await addToCart(productId);
             overlay.swap({ sheet: "cart" });
           }}
         >
-          장바구니에 담기
+          {quantity ? `하나 더 담기 (${quantity})` : "장바구니에 담기"}
         </button>
       </div>
     </Dialog>
@@ -131,9 +184,11 @@ function DetailDialog({ product }: { product: Product }) {
 
 function CartDialog() {
   const overlay = useOverlayNav();
-  const { cart, cartAdd, cartDec, cartRemove } = useStore();
-  const ids = Object.keys(cart);
-  const total = ids.reduce((a, id) => a + BY_ID[id].price * cart[id], 0);
+  const { cart, cartBusy, refreshCart, setQuantity } = useStore();
+
+  useEffect(() => { refreshCart(); }, [refreshCart]);
+
+  const items = cart?.items ?? [];
 
   return (
     <Dialog labelledBy="cart-title" onClose={overlay.close}>
@@ -142,32 +197,46 @@ function CartDialog() {
         <CloseButton onClick={overlay.close} />
       </div>
 
-      {ids.length === 0 && <p className="dialog-body">담은 상품이 없습니다.</p>}
+      {!cart && <p className="dialog-body" role="status">불러오는 중…</p>}
+      {cart && items.length === 0 && <p className="dialog-body">담은 상품이 없습니다.</p>}
 
-      <div className="row-list">
-        {ids.map((id) => (
-          <div key={id} className="row">
-            <div className="row-text">
-              <span>{BY_ID[id].name}</span>
-              <span>{won(BY_ID[id].price)}</span>
-            </div>
-            <div className="qty">
-              <button type="button" className="btn btn-secondary btn-icon xs" aria-label="수량 감소" onClick={() => cartDec(id)}>
-                <MinusIcon weight="bold" size={13} />
+      <ul className="row-list">
+        {items.map((item) => {
+          const busy = cartBusy === item.product_id;
+          return (
+            <li key={item.product_id} className="row">
+              <button
+                type="button"
+                className="cart-thumb"
+                aria-label={`${item.product.title} 상세`}
+                onClick={() => overlay.swap({ product: item.product_id })}
+              >
+                <ProductImage product={item.product} />
               </button>
-              <span aria-live="polite">{cart[id]}</span>
-              <button type="button" className="btn btn-secondary btn-icon xs" aria-label="수량 증가" onClick={() => cartAdd(id)}>
-                <PlusIcon weight="bold" size={13} />
-              </button>
-            </div>
-            <button type="button" className="btn btn-ghost is-quiet" style={{ fontSize: 12 }} onClick={() => cartRemove(id)}>삭제</button>
-          </div>
-        ))}
-      </div>
+              <div className="row-text">
+                <span className="clamp-2">{item.product.title}</span>
+                <span>{categoryLabel(item.product.category)}</span>
+              </div>
+              <div className="qty" aria-busy={busy}>
+                <button type="button" className="btn btn-secondary btn-icon xs" aria-label="수량 감소" disabled={busy || item.quantity <= 1} onClick={() => setQuantity(item.product_id, item.quantity - 1)}>
+                  <MinusIcon weight="bold" size={13} />
+                </button>
+                <span aria-live="polite">{item.quantity}</span>
+                <button type="button" className="btn btn-secondary btn-icon xs" aria-label="수량 증가" disabled={busy || item.quantity >= 20} onClick={() => setQuantity(item.product_id, item.quantity + 1)}>
+                  <PlusIcon weight="bold" size={13} />
+                </button>
+              </div>
+              <button type="button" className="btn btn-ghost is-quiet" style={{ fontSize: 12 }} disabled={busy} onClick={() => setQuantity(item.product_id, 0)}>삭제</button>
+            </li>
+          );
+        })}
+      </ul>
 
-      <div className="cart-total">
-        <span className="label">합계</span>
-        <span className="value">{won(total)}</span>
+      {/* No checkout API yet (spec: 구매 버튼은 비활성) */}
+      <div className="dialog-actions">
+        <button type="button" className="btn btn-primary" disabled title="구매 기능은 준비 중이에요">
+          구매하기 (준비 중)
+        </button>
       </div>
     </Dialog>
   );
@@ -175,7 +244,9 @@ function CartDialog() {
 
 function PrefsDialog() {
   const overlay = useOverlayNav();
-  const { prefs, editPref, forgetPref } = useStore();
+  const { prefs, prefsError, refreshPrefs, togglePrefActive, forgetPref } = useStore();
+
+  useEffect(() => { refreshPrefs(); }, [refreshPrefs]);
 
   return (
     <Dialog labelledBy="prefs-title" onClose={overlay.close}>
@@ -183,22 +254,37 @@ function PrefsDialog() {
         <h2 id="prefs-title" className="dialog-title" style={{ margin: 0 }}>내 취향</h2>
         <CloseButton onClick={overlay.close} />
       </div>
-      <p className="dialog-body">대화에서 모은 기준입니다. 틀린 항목은 바꾸거나 지울 수 있습니다.</p>
+      <p className="dialog-body">대화에서 모은 기준입니다. 끄거나 지울 수 있고, 다음 추천부터 반영돼요.</p>
 
-      <div className="row-list">
-        {prefs.map((p) => (
-          <div key={p.id} className="row">
-            <div className="row-text">
-              <span>{p.label}</span>
-              <span>{p.source}</span>
-            </div>
-            <button type="button" className="btn btn-secondary" style={{ minHeight: 30, fontSize: 12, marginLeft: "auto" }} onClick={() => editPref(p.id)}>
-              수정
-            </button>
-            <button type="button" className="btn btn-ghost is-quiet" style={{ fontSize: 12 }} onClick={() => forgetPref(p.id)}>잊기</button>
-          </div>
-        ))}
-      </div>
+      {prefsError && <p className="dialog-body" role="alert">{prefsError}</p>}
+      {!prefs && !prefsError && <p className="dialog-body" role="status">불러오는 중…</p>}
+      {prefs && prefs.length === 0 && (
+        <p className="caption">아직 저장된 취향이 없어요. 대화에서 &ldquo;얇은&rdquo;, &ldquo;검은색&rdquo; 같은 조건을 말하면 자동으로 저장돼요.</p>
+      )}
+
+      <ul className="row-list">
+        {prefs?.map((p) => {
+          const active = p.active !== false;
+          return (
+            <li key={p.preference_id} className={`row${active ? "" : " is-inactive"}`}>
+              <div className="row-text">
+                <span>{preferenceLabel(p)}</span>
+                <span>{active ? preferenceMeta(p) : `꺼짐 · ${preferenceMeta(p)}`}</span>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ minHeight: 30, fontSize: 12, marginLeft: "auto" }}
+                aria-pressed={!active}
+                onClick={() => togglePrefActive(p)}
+              >
+                {active ? "끄기" : "켜기"}
+              </button>
+              <button type="button" className="btn btn-ghost is-quiet" style={{ fontSize: 12 }} onClick={() => forgetPref(p.preference_id)}>잊기</button>
+            </li>
+          );
+        })}
+      </ul>
     </Dialog>
   );
 }
