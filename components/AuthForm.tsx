@@ -26,9 +26,9 @@ export default function AuthForm({ mode }: { mode: "signin" | "signup" }) {
     setPending(true);
     setError(null);
     try {
-      if (signUp) await register(email, password, name, remember);
-      else await login(email, password, remember);
-      router.push("/onboarding/1");
+      // Returning users who already finished onboarding go straight to the shop.
+      const onboarded = signUp ? (await register(email, password, name, remember), false) : await login(email, password, remember);
+      router.push(onboarded ? "/products" : "/onboarding/1");
     } catch (err) {
       setError(errorMessage(err));
       setPending(false);

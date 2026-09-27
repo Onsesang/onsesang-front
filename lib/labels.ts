@@ -64,6 +64,7 @@ export function preferenceLabel(p: Preference) {
 
 export function preferenceMeta(p: Preference) {
   const type = ATTRIBUTE_TYPE[p.attribute_type] ?? p.attribute_type;
+  // onboarding picks and anything else not learned from chat count as 직접 설정.
   const source = p.source === "chat_auto" ? "대화에서 자동 저장" : "직접 설정";
   const date = p.updated_at ? new Date(p.updated_at).toLocaleDateString("ko-KR", { month: "long", day: "numeric" }) : "";
   return [type, source, date].filter(Boolean).join(" · ");

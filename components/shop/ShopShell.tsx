@@ -12,6 +12,7 @@ import {
   SquaresFourIcon,
   XIcon,
 } from "@phosphor-icons/react";
+import { STEPS } from "@/lib/data";
 import { useStore } from "@/lib/store";
 import { useOverlayNav } from "@/lib/overlay";
 import ChatPanel from "./ChatPanel";
@@ -75,7 +76,7 @@ function Sidebar() {
           <BagIcon weight="bold" size={16} />장바구니
           {cartCount > 0 && <span className="nav-badge">{cartCount}</span>}
         </button>
-        <Link className="nav-btn" href="/onboarding/3">
+        <Link className="nav-btn" href={`/onboarding/${STEPS.findIndex((s) => s.key === "voice") + 1}`}>
           <GearSixIcon weight="bold" size={16} />설정
         </Link>
       </nav>
