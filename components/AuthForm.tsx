@@ -26,9 +26,15 @@ export default function AuthForm({ mode }: { mode: "signin" | "signup" }) {
     setPending(true);
     setError(null);
     try {
-      // Returning users who already finished onboarding go straight to the shop.
-      const onboarded = signUp ? (await register(email, password, name, remember), false) : await login(email, password, remember);
-      router.push(onboarded ? "/products" : "/onboarding/1");
+      // Onboarding only runs right after sign-up; logging in always goes straight to shopping
+      // (settings stay reachable from 설정 in the sidebar).
+      if (signUp) {
+        await register(email, password, name, remember);
+        router.push("/onboarding/1");
+      } else {
+        await login(email, password, remember);
+        router.push("/products");
+      }
     } catch (err) {
       setError(errorMessage(err));
       setPending(false);
