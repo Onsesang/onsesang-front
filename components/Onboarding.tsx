@@ -39,7 +39,7 @@ export default function Onboarding({ index }: { index: number }) {
             <p>{step.desc}</p>
           </div>
 
-          <div className="onb-grid">
+          <div className="onb-grid" data-cols={step.options.length === 4 ? 2 : 3}>
             {step.options.map((o) => (
               <button
                 key={o.id}

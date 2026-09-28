@@ -206,3 +206,44 @@ button, input { font: inherit; }
   }
   .dialog-actions > .btn { flex: 1; min-height: 44px; }
 }
+
+/* ───────────── 설정 → 큰 글씨 (<html data-text="large">) ─────────────
+   Sizes are px throughout, so the reading surfaces are bumped explicitly (~18px body). */
+[data-text="large"] body { font-size: 18px; }
+[data-text="large"] .btn { font-size: 16px; }
+[data-text="large"] .input { font-size: 18px; min-height: 48px; }
+[data-text="large"] .bubble { font-size: 18px; line-height: 1.65; }
+[data-text="large"] .ref-btn .name { font-size: 16px; }
+[data-text="large"] .quick .btn { font-size: 15px; min-height: 38px; }
+[data-text="large"] .chat-head .title strong { font-size: 18px; }
+[data-text="large"] .chat-head .title span,
+[data-text="large"] .chat-head .voice { font-size: 14px; }
+[data-text="large"] .pane-head h1 { font-size: 23px; }
+[data-text="large"] .pane-head .count,
+[data-text="large"] .caption,
+[data-text="large"] .product-info .brand-name { font-size: 14px; }
+[data-text="large"] .product-info .name { font-size: 17px; }
+[data-text="large"] .card-actions .add { font-size: 15px; min-height: 40px; }
+[data-text="large"] .nav-btn { font-size: 16px; }
+[data-text="large"] .session-btn .title { font-size: 15px; }
+[data-text="large"] .session-btn .time,
+[data-text="large"] .sidebar-label { font-size: 12px; }
+[data-text="large"] .tab { font-size: 13px; }
+[data-text="large"] .dialog-title { font-size: 24px; }
+[data-text="large"] .dialog-body,
+[data-text="large"] .row-text > :first-child { font-size: 17px; }
+[data-text="large"] .row-text > :last-child { font-size: 14px; }
+[data-text="large"] .tactile-chips li { font-size: 16px; }
+[data-text="large"] .onb-heading p { font-size: 17px; }
+[data-text="large"] .onb-option .label { font-size: 18px; }
+[data-text="large"] .onb-option .note { font-size: 15px; }
+[data-text="large"] .field > label,
+[data-text="large"] .auth-brand .tagline { font-size: 15px; }
+[data-text="large"] .toast,
+[data-text="large"] .stt-error { font-size: 15px; }
+
+/* ───────────── 설정 → 스크린리더 우선 (<html data-sr="on">) ───────────── */
+[data-sr="on"] *, [data-sr="on"] *::before, [data-sr="on"] *::after {
+  animation-duration: 0s !important; transition-duration: 0s !important; scroll-behavior: auto !important;
+}
+[data-sr="on"] :focus-visible, [data-sr="on"] .bubble:focus { outline: 3px solid var(--color-accent); outline-offset: 3px; }

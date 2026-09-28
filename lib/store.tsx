@@ -32,6 +32,9 @@ type Picks = Record<string, boolean>;
 
 const LEGACY_PICKS_KEY = "onsesang.picks"; // device-wide picks from before the onboarding API
 const picksKey = (userId: string) => `onsesang.picks.${userId}`;
+// Until a user saves onboarding, 답변 읽어주기 starts on. Saved answers always win, so turning
+// it off (or "그냥 해도 괜찮아요") sticks.
+const DEFAULT_PICKS: Picks = { tts: true };
 const currentKey = (userId: string) => `onsesang.currentSession.${userId}`;
 
 // One answer group per onboarding step (Step.key).
@@ -152,7 +155,7 @@ function useStoreValue() {
     if (!user) return;
     const userId = user.user_id;
     let cancelled = false;
-    applyPicks(readJSON(picksKey(userId), {}));
+    applyPicks(readJSON(picksKey(userId), DEFAULT_PICKS));
     API.onboarding.get()
       .then((o) => {
         if (cancelled) return;
@@ -212,6 +215,16 @@ function useStoreValue() {
     resetUserData();
     setAuthStatus("anonymous");
   }, [resetUserData]);
+
+  // Page-wide display settings from 설정: <html data-text="large"> scales type, data-sr
+  // turns off motion and strengthens focus rings (see globals.css).
+  useEffect(() => {
+    const root = document.documentElement;
+    if (picked.big) root.dataset.text = "large";
+    else delete root.dataset.text;
+    if (picked.sr) root.dataset.sr = "on";
+    else delete root.dataset.sr;
+  }, [picked.big, picked.sr]);
 
   // Defined before picks: onboarding saves turn tactile picks into preferences (직접 설정).
   const refreshPrefs = useCallback(async () => {
@@ -438,7 +451,10 @@ function useStoreValue() {
     // Voice settings come from onboarding step 3 and stay editable from the chat header.
     ttsEnabled: !!picked.tts,
     toggleTts: () => togglePick("tts"),
-    speechRate: picked.speed ? 1.2 : 1,
+    // 천천히 읽기. 0.8 was barely audible with the macOS Korean voice, so it is set clearly slower.
+    speechRate: picked.speed ? 0.7 : 1,
+    screenReaderMode: !!picked.sr,
+    largeText: !!picked.big,
     catalog, catalogLoading, catalogError, loadPage,
     results, clearResults: () => setResults(null),
     sessionId, sessionList, msgs, sending, send, newSession, openSession,

@@ -30,7 +30,10 @@ function spokenText(m: Msg) {
 
 export default function ChatPanel() {
   const overlay = useOverlayNav();
-  const { msgs, sending, send, sessionId, sessionList, newSession, ttsEnabled, toggleTts, speechRate } = useStore();
+  const {
+    msgs, sending, send, sessionId, sessionList, newSession,
+    ttsEnabled, toggleTts, speechRate, screenReaderMode,
+  } = useStore();
   const [input, setInput] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -65,9 +68,16 @@ export default function ChatPanel() {
     const last = msgs[msgs.length - 1];
     if (!last || last.id === lastSeen.current) return;
     lastSeen.current = last.id;
-    if (last.role === "user") lastUserSent.current = true;
-    else if (lastUserSent.current && ttsEnabled && !last.error) say(last.id, spokenText(last));
-  }, [msgs, ttsEnabled, say]);
+    if (last.role === "user") {
+      lastUserSent.current = true;
+      return;
+    }
+    if (!lastUserSent.current) return;
+    if (ttsEnabled && !last.error) say(last.id, spokenText(last));
+    // 스크린리더 우선: move focus to the new reply so it is read in full and the
+    // numbered product buttons right after it are next in tab order.
+    if (screenReaderMode) document.getElementById(`msg-${last.id}`)?.focus();
+  }, [msgs, ttsEnabled, say, screenReaderMode]);
 
   useEffect(() => {
     if (!ttsEnabled) stopTts();
@@ -127,7 +137,12 @@ export default function ChatPanel() {
           const products = m.products ?? [];
           return (
             <div key={m.id} className="msg-row" data-role={m.role}>
-              <div className={`bubble${m.error ? " is-error" : ""}`} role={m.error ? "alert" : undefined}>
+              <div
+                id={`msg-${m.id}`}
+                tabIndex={-1}
+                className={`bubble${m.error ? " is-error" : ""}`}
+                role={m.error ? "alert" : undefined}
+              >
                 <span className="text">{m.text}</span>
                 {products.length > 0 && (
                   <ol className="refs">
