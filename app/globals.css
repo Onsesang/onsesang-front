@@ -138,6 +138,9 @@ button, input { font: inherit; }
 }
 .input:hover { border-color: color-mix(in srgb, var(--color-text) 45%, transparent); }
 .input:focus-visible { border-color: var(--color-accent); outline-offset: 0; }
+/* iOS Safari zooms into any focused field under 16px. Touch screens get 16px text instead of
+   disabling zoom (maximum-scale=1 would also block pinch-zoom that low-vision users rely on). */
+@media (pointer: coarse) { .input { font-size: 16px; } }
 .radio { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
 .radio input {
   position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none;
