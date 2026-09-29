@@ -12,14 +12,15 @@ export default function Onboarding({ index }: { index: number }) {
   const total = STEPS.length;
   const isLast = index === total - 1;
   const prevHref = index === 0 ? "/login" : `/onboarding/${index}`;
-  const nextHref = isLast ? "/products" : `/onboarding/${index + 2}`;
+  // Finishing (or skipping) onboarding opens the conversation first; on phones that is the chat pane.
+  const nextHref = isLast ? "/chat" : `/onboarding/${index + 2}`;
 
   return (
     <main className="onb">
       <header className="onb-top">
         <span className="brand">onsesang</span>
         <span className="step-count">취향 설정 {index + 1} / {total}</span>
-        <Link className="btn btn-ghost" style={{ fontSize: 13 }} href="/products">나중에 하기</Link>
+        <Link className="btn btn-ghost" style={{ fontSize: 13 }} href="/chat">나중에 하기</Link>
       </header>
       <div
         className="onb-progress"
@@ -62,7 +63,7 @@ export default function Onboarding({ index }: { index: number }) {
                 onClick={async () => {
                   clearVoicePicks();
                   await completeOnboarding(); // the product list is filtered by the saved answers
-                  router.push("/products");
+                  router.push("/chat");
                 }}
               >
                 그냥 해도 괜찮아요

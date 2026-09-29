@@ -26,14 +26,14 @@ export default function AuthForm({ mode }: { mode: "signin" | "signup" }) {
     setPending(true);
     setError(null);
     try {
-      // Onboarding only runs right after sign-up; logging in always goes straight to shopping
+      // Onboarding only runs right after sign-up; logging in goes straight to the conversation
       // (settings stay reachable from 설정 in the sidebar).
       if (signUp) {
         await register(email, password, name, remember);
         router.push("/onboarding/1");
       } else {
         await login(email, password, remember);
-        router.push("/products");
+        router.push("/chat");
       }
     } catch (err) {
       setError(errorMessage(err));
