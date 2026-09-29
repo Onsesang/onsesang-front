@@ -1,7 +1,4 @@
-import type { Metadata } from "next";
 import ProductList from "@/components/shop/ProductList";
-
-export const metadata: Metadata = { title: "상품 · onsesang" };
 
 // 전체 상품 always lists the catalog. ?view=results shows the current conversation's
 // results instead — the phone chat links here, since on phones the list and chat don't share a screen.

@@ -12,7 +12,7 @@ const pretendard = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "onsesang — 소재 기준 쇼핑 도우미",
+  title: "onsesang", // one tab title everywhere; pages don't override it
   description: "소재 기준으로 옷을 좁혀주는 쇼핑 도우미",
 };
 

@@ -1,7 +1,4 @@
-import type { Metadata } from "next";
 import ProductList from "@/components/shop/ProductList";
-
-export const metadata: Metadata = { title: "대화 · onsesang" };
 
 // The chat column lives in the shop layout. On desktop the list sits beside it and shows what
 // the conversation found; on compact screens the layout shows chat only.
