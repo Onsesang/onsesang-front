@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { ArrowUpRightIcon, BagIcon } from "@phosphor-icons/react";
+import Link from "next/link";
+import { ArrowUpRightIcon, BagIcon, ListIcon } from "@phosphor-icons/react";
 import type { Product } from "@/lib/api/types";
 import { sendEvent } from "@/lib/api/endpoints";
 import { categoryLabel, tactileSourceLabel } from "@/lib/labels";
@@ -12,19 +13,21 @@ import ProductImage from "@/components/ProductImage";
 // product_impression is sent once per product per page load (spec 행동 이벤트).
 const impressed = new Set<string>();
 
-export default function ProductList() {
+/** showResults: list the conversation's search results when there are any (else the catalog). */
+export default function ProductList({ showResults = false }: { showResults?: boolean }) {
   const overlay = useOverlayNav();
   const {
     catalog, catalogLoading, catalogError, loadPage,
-    results, clearResults, quantityOf, addToCart, cartBusy, cartCount, sessionId,
+    results, resultsLoading, quantityOf, addToCart, cartBusy, cartCount, sessionId,
   } = useStore();
 
   useEffect(() => {
     if (!catalog && !catalogLoading && !catalogError) loadPage(1);
   }, [catalog, catalogLoading, catalogError, loadPage]);
 
-  const showingResults = results !== null;
-  const list = results ?? catalog?.items ?? [];
+  const showingResults = showResults && (results !== null || resultsLoading);
+  const list = showingResults ? results ?? [] : catalog?.items ?? [];
+  const loading = showingResults ? resultsLoading : catalogLoading;
   const scroller = useRef<HTMLDivElement>(null);
 
   // Back to the top when the list is replaced (new search results or another page).
@@ -37,14 +40,23 @@ export default function ProductList() {
   return (
     <section className="list-pane" aria-labelledby="list-title">
       <div className="pane-head">
+        <button
+          type="button"
+          className="btn btn-ghost is-quiet btn-icon sm compact-only menu-btn"
+          aria-label="메뉴 열기 (대화 목록)"
+          onClick={() => overlay.open({ sheet: "menu" })}
+        >
+          <ListIcon weight="bold" size={20} />
+        </button>
         <h1 id="list-title">{showingResults ? "대화로 좁힌 결과" : "전체 상품"}</h1>
         <span className="count">
           {showingResults ? `${list.length}개` : catalog ? `${catalog.total.toLocaleString("ko-KR")}개` : ""}
         </span>
         {showingResults && (
-          <button type="button" className="btn btn-ghost" style={{ fontSize: 13 }} onClick={clearResults}>
+          // Goes to the catalog without dropping the conversation's results, so 대화 shows them again.
+          <Link className="btn btn-ghost" style={{ fontSize: 13 }} href="/products">
             전체 보기
-          </button>
+          </Link>
         )}
         <button
           type="button"
@@ -63,11 +75,24 @@ export default function ProductList() {
             <button type="button" className="btn btn-secondary" onClick={() => loadPage(catalog?.page ?? 1)}>다시 시도</button>
           </div>
         )}
-        {!catalogError && list.length === 0 && (
-          <div className="state-box" role="status">{catalogLoading ? "상품을 불러오는 중…" : "보여드릴 상품이 없어요."}</div>
+        {!catalogError && list.length === 0 && !loading && (
+          <div className="state-box" role="status">보여드릴 상품이 없어요.</div>
+        )}
+        {list.length === 0 && loading && (
+          <ol className="product-grid" aria-busy="true" aria-label={showingResults ? "이 대화에서 찾은 상품을 불러오는 중" : "상품을 불러오는 중"}>
+            {Array.from({ length: 8 }, (_, i) => (
+              <li key={i} className="product-card skeleton" aria-hidden="true">
+                <div className="thumb" />
+                <span className="sk-line short" />
+                <span className="sk-line" />
+                <span className="sk-line" />
+                <span className="sk-btn" />
+              </li>
+            ))}
+          </ol>
         )}
 
-        <ol className="product-grid" aria-busy={catalogLoading}>
+        <ol className="product-grid" aria-busy={loading}>
           {list.map((p, i) => (
             <ProductCard
               key={p.product_id}

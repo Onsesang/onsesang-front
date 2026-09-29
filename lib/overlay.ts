@@ -3,9 +3,9 @@
 import { usePathname, useRouter } from "next/navigation";
 
 // Overlays (product detail, cart, preferences) live in the query string so they
-// are linkable and the back button closes them: ?product=p01, ?sheet=cart, ?sheet=prefs.
+// are linkable and the back button closes them: ?product=p01, ?sheet=cart, ?sheet=prefs, ?sheet=menu (phone menu).
 // rank = the product's 1-based screen position, forwarded to the click event (spec 행동 이벤트).
-export type OverlayParams = { product: string; rank?: number } | { sheet: "cart" | "prefs" };
+export type OverlayParams = { product: string; rank?: number } | { sheet: "cart" | "prefs" | "menu" };
 
 // True while the current overlay was opened by an in-app push, so closing can
 // pop history instead of stacking another entry. A deep link starts with false.

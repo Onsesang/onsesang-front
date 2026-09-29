@@ -58,7 +58,15 @@ export type Session = {
   session_id: string;
   created_at: string;
   updated_at: string;
-  messages?: { role: string; content: string; created_at: string }[];
+  /** Agent memory. last_product_ids = the latest search results, in "N번" order (spec p.5). */
+  state?: { last_product_ids?: string[] };
+  messages?: {
+    role: string;
+    content: string;
+    created_at: string;
+    /** Not in spec v1.2 but returned by the server: products a search turn found, in order. */
+    metadata?: { result_product_ids?: string[] } | null;
+  }[];
 };
 
 /** One row of GET /sessions: conversations with at least one message, newest first. */

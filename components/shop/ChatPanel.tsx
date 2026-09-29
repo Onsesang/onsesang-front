@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowUpIcon,
+  ListIcon,
   MicrophoneIcon,
   NotePencilIcon,
   SlidersHorizontalIcon,
@@ -97,6 +98,14 @@ export default function ChatPanel() {
   return (
     <section className="chat-pane" aria-label="대화">
       <div className="chat-head">
+        <button
+          type="button"
+          className="btn btn-ghost is-quiet btn-icon sm compact-only menu-btn"
+          aria-label="메뉴 열기 (대화 목록)"
+          onClick={() => overlay.open({ sheet: "menu" })}
+        >
+          <ListIcon weight="bold" size={20} />
+        </button>
         <div className="title">
           <strong className="display">대화</strong>
           <span className="clamp-1">{title}</span>
@@ -156,7 +165,7 @@ export default function ChatPanel() {
                     ))}
                     {products.length > REFS_IN_BUBBLE && (
                       <li>
-                        <Link className="ref-more" href="/products">
+                        <Link className="ref-more compact-only" href="/products?view=results">
                           {products.length}개 모두 목록에서 보기
                         </Link>
                       </li>

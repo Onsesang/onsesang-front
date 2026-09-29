@@ -13,6 +13,7 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import { STEPS } from "@/lib/data";
+import { relativeTime } from "@/lib/labels";
 import { useStore } from "@/lib/store";
 import { useOverlayNav } from "@/lib/overlay";
 import ChatPanel from "./ChatPanel";
@@ -27,7 +28,7 @@ export default function ShopShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="shop" data-pane={pane}>
-      <Sidebar />
+      <Sidebar pane={pane} />
       <div className="shop-main">
         {children}
         <ChatPanel />
@@ -48,25 +49,21 @@ export default function ShopShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function relativeTime(iso: string) {
-  const diff = (Date.now() - new Date(iso).getTime()) / 60000;
-  if (diff < 1) return "방금";
-  if (diff < 60) return `${Math.floor(diff)}분 전`;
-  if (diff < 60 * 24) return `${Math.floor(diff / 60)}시간 전`;
-  return new Date(iso).toLocaleDateString("ko-KR", { month: "long", day: "numeric" });
-}
-
-function Sidebar() {
+function Sidebar({ pane }: { pane: "list" | "chat" }) {
   const router = useRouter();
   const overlay = useOverlayNav();
-  const { user, logout, prefs, cartCount, sessionId, sessionList, openSession, newSession, clearResults } = useStore();
+  const { user, logout, prefs, cartCount, sessionId, sessionList, openSession, newSession } = useStore();
 
   return (
     <aside className="sidebar" aria-label="메뉴">
       <span className="brand">onsesang</span>
       <nav className="nav-list">
-        <Link className="nav-btn" href="/products" aria-current="page" onClick={clearResults}>
+        {/* 전체 상품 = list only; 대화 = list + chat side by side. Only the open one is marked. */}
+        <Link className="nav-btn" href="/products" aria-current={pane === "list" ? "page" : undefined}>
           <SquaresFourIcon weight="bold" size={16} />전체 상품
+        </Link>
+        <Link className="nav-btn" href="/chat" aria-current={pane === "chat" ? "page" : undefined}>
+          <ChatCircleIcon weight="bold" size={16} />대화
         </Link>
         <button type="button" className="nav-btn" onClick={() => overlay.open({ sheet: "prefs" })}>
           <SlidersHorizontalIcon weight="bold" size={16} />내 취향
@@ -90,7 +87,8 @@ function Sidebar() {
             key={x.id}
             type="button"
             className="session-btn"
-            aria-current={sessionId === x.id}
+            // Highlight the open conversation only while the chat is on screen.
+            aria-current={pane === "chat" && sessionId === x.id}
             onClick={() => {
               openSession(x.id);
               router.push("/chat");
@@ -134,11 +132,11 @@ function TabBar({ pane }: { pane: "list" | "chat" }) {
 
   return (
     <nav className="tabbar" aria-label="하단 메뉴">
-      <Link className="tab" href="/products" aria-current={pane === "list" ? "page" : undefined}>
-        <SquaresFourIcon weight="bold" size={20} />상품
-      </Link>
       <Link className="tab" href="/chat" aria-current={pane === "chat" ? "page" : undefined}>
         <ChatCircleIcon weight="bold" size={20} />대화
+      </Link>
+      <Link className="tab" href="/products" aria-current={pane === "list" ? "page" : undefined}>
+        <SquaresFourIcon weight="bold" size={20} />상품
       </Link>
       <button type="button" className="tab" onClick={() => overlay.open({ sheet: "prefs" })}>
         <SlidersHorizontalIcon weight="bold" size={20} />취향

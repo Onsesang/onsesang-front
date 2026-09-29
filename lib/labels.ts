@@ -70,6 +70,15 @@ export function preferenceMeta(p: Preference) {
   return [type, source, date].filter(Boolean).join(" · ");
 }
 
+/** "방금", "5분 전", "3시간 전", then a date — for conversation lists. */
+export function relativeTime(iso: string) {
+  const diff = (Date.now() - new Date(iso).getTime()) / 60000;
+  if (diff < 1) return "방금";
+  if (diff < 60) return `${Math.floor(diff)}분 전`;
+  if (diff < 60 * 24) return `${Math.floor(diff / 60)}시간 전`;
+  return new Date(iso).toLocaleDateString("ko-KR", { month: "long", day: "numeric" });
+}
+
 export function tactileSourceLabel(source: TactileSource | undefined) {
   if (source === "review_grounded_overlay") return "리뷰 근거 있음";
   if (source === "image_predicted_last2") return "이미지로 예측";

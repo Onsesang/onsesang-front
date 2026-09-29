@@ -10,6 +10,7 @@ import { categoryLabel, preferenceLabel, preferenceMeta, tactileSourceLabel } fr
 import { useStore } from "@/lib/store";
 import { resetOverlayHistory, useOverlayNav } from "@/lib/overlay";
 import ProductImage from "@/components/ProductImage";
+import MobileMenu from "./MobileMenu";
 
 export default function Overlays() {
   const params = useSearchParams();
@@ -24,6 +25,7 @@ export default function Overlays() {
   if (productId) return <DetailDialog key={productId} productId={productId} rank={rank} />;
   if (sheet === "cart") return <CartDialog />;
   if (sheet === "prefs") return <PrefsDialog />;
+  if (sheet === "menu") return <MobileMenu />;
   return null;
 }
 

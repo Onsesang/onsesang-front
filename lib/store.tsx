@@ -5,7 +5,7 @@ import { GREETING, STEPS } from "./data";
 import { ApiError, errorMessage, getToken, onServerSwitch, onUnauthorized, setToken } from "./api/client";
 import * as API from "./api/endpoints";
 import type {
-  Cart, OnboardingAnswers, Preference, Product, ProductPage, SessionListItem, User,
+  Cart, OnboardingAnswers, Preference, Product, ProductPage, Session, SessionListItem, User,
 } from "./api/types";
 
 export type Msg = {
@@ -65,6 +65,25 @@ function writeJSON(key: string, value: unknown) {
   } catch { /* storage unavailable */ }
 }
 
+// How many products an answer bubble lists (keep in sync with ChatPanel's REFS_IN_BUBBLE).
+const REFS_PER_MESSAGE = 3;
+
+/** GET /products/{id} for each id, 6 at a time; failed ids are skipped. */
+async function fetchProducts(ids: string[], cache: Map<string, Product>) {
+  const todo = ids.filter((id) => !cache.has(id));
+  let next = 0;
+  const worker = async () => {
+    while (next < todo.length) {
+      const id = todo[next++];
+      try {
+        cache.set(id, (await API.products.detail(id)).product);
+      } catch { /* removed product or network blip: leave it out */ }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, todo.length) }, worker));
+  return cache;
+}
+
 function useStoreValue() {
   /* ── auth ── */
   const [user, setUser] = useState<User | null>(null);
@@ -87,6 +106,11 @@ function useStoreValue() {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [results, setResults] = useState<Product[] | null>(null);
+  const [resultsLoading, setResultsLoading] = useState(false);
+  // Bumped whenever results change hands (new search, new/other conversation) so a slower
+  // restore of an older conversation can't overwrite them.
+  const restoreSeq = useRef(0);
+  const productCache = useRef(new Map<string, Product>());
 
   /* ── chat ── */
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -150,6 +174,48 @@ function useStoreValue() {
     return () => onUnauthorized(null);
   }, [resetUserData]);
 
+  /** Shows a conversation from GET /sessions/{id}: its messages, and its last search results
+   *  back in the product list (same 1·2·3 order the answers refer to). */
+  const applySession = useCallback((s: Session) => {
+    const seq = ++restoreSeq.current;
+    setSessionId(s.session_id);
+    const restored = (s.messages ?? []).map((m) => {
+      const bot = m.role !== "user";
+      return {
+        msg: { id: msgSeq++, role: bot ? "bot" : "user", text: m.content } as Msg,
+        refIds: bot ? m.metadata?.result_product_ids ?? [] : [],
+      };
+    });
+    setMsgs(restored.length ? restored.map((r) => r.msg) : [greeting()]);
+
+    const lastIds = s.state?.last_product_ids ?? [];
+    const refIds = restored.flatMap((r) => r.refIds.slice(0, REFS_PER_MESSAGE));
+    if (!lastIds.length && !refIds.length) {
+      setResults(null);
+      setResultsLoading(false);
+      return;
+    }
+    if (lastIds.length) {
+      setResults([]);
+      setResultsLoading(true);
+    } else {
+      setResults(null);
+    }
+    fetchProducts([...new Set([...lastIds, ...refIds])], productCache.current).then((cache) => {
+      if (seq !== restoreSeq.current) return;
+      const pick = (ids: string[]) => ids.map((id) => cache.get(id)).filter((p): p is Product => !!p);
+      if (lastIds.length) setResults(pick(lastIds));
+      setResultsLoading(false);
+      const lastKey = lastIds.join(",");
+      const byMsg = new Map(restored.filter((r) => r.refIds.length).map((r) => [
+        r.msg.id,
+        // The latest search keeps its full list so "N개 모두 목록에서 보기" still shows.
+        pick(r.refIds.join(",") === lastKey ? r.refIds : r.refIds.slice(0, REFS_PER_MESSAGE)),
+      ]));
+      setMsgs((ms) => ms.map((m) => (byMsg.get(m.id)?.length ? { ...m, products: byMsg.get(m.id) } : m)));
+    });
+  }, []);
+
   // Load this user's onboarding picks and conversations, and reopen the last conversation.
   useEffect(() => {
     if (!user) return;
@@ -180,17 +246,15 @@ function useStoreValue() {
       .catch(() => { /* the list stays empty; sending still works */ });
     const current = readJSON<string | null>(currentKey(user.user_id), null);
     if (!current) return;
+    setResultsLoading(true); // skeletons in the chat's list instead of a flash of the catalog
     API.sessions.get(current)
-      .then((s) => {
-        setSessionId(s.session_id);
-        const restored = (s.messages ?? []).map<Msg>((m) => ({
-          id: msgSeq++, role: m.role === "user" ? "user" : "bot", text: m.content,
-        }));
-        setMsgs(restored.length ? restored : [greeting()]);
-      })
-      .catch(() => writeJSON(currentKey(user.user_id), null));
+      .then((s) => { if (!cancelled) applySession(s); })
+      .catch(() => {
+        setResultsLoading(false);
+        writeJSON(currentKey(user.user_id), null);
+      });
     return () => { cancelled = true; };
-  }, [user, applyPicks]);
+  }, [user, applyPicks, applySession]);
 
   const signIn = useCallback(async (res: { user: User; access_token: string }, remember: boolean) => {
     setToken(res.access_token, remember);
@@ -404,7 +468,11 @@ function useStoreValue() {
       const found = isSearch ? reply.products ?? [] : [];
       setMsgs((m) => [...m, { id: msgSeq++, role: "bot", text: reply.message, products: found.length ? found : undefined }]);
       // Unknown actions behave like `respond`: reply only, list untouched (spec v1.2).
-      if (found.length) setResults(found);
+      if (found.length) {
+        restoreSeq.current++;
+        setResultsLoading(false);
+        setResults(found);
+      }
       if (reply.cart_updated) refreshCart();
       if (reply.preferences_saved?.length && prefs) refreshPrefs();
     } catch (e) {
@@ -418,6 +486,8 @@ function useStoreValue() {
   const newSession = useCallback(() => {
     setSessionId(null); // created lazily on the first message
     setMsgs([greeting()]);
+    restoreSeq.current++;
+    setResultsLoading(false);
     setResults(null);
     if (user) writeJSON(currentKey(user.user_id), null);
   }, [user]);
@@ -425,14 +495,8 @@ function useStoreValue() {
   const openSession = useCallback(async (id: string) => {
     if (!user) return;
     try {
-      const s = await API.sessions.get(id);
-      setSessionId(s.session_id);
-      setResults(null);
-      const restored = (s.messages ?? []).map<Msg>((m) => ({
-        id: msgSeq++, role: m.role === "user" ? "user" : "bot", text: m.content,
-      }));
-      setMsgs(restored.length ? restored : [greeting()]);
-      writeJSON(currentKey(user.user_id), s.session_id);
+      applySession(await API.sessions.get(id));
+      writeJSON(currentKey(user.user_id), id);
     } catch (e) {
       if (e instanceof ApiError && e.code === "not_found") {
         setSessionList((list) => list.filter((s) => s.id !== id));
@@ -441,7 +505,7 @@ function useStoreValue() {
         notify(errorMessage(e));
       }
     }
-  }, [user, notify]);
+  }, [user, notify, applySession]);
 
   const cartCount = cart?.items.reduce((a, i) => a + i.quantity, 0) ?? 0;
 
@@ -456,7 +520,7 @@ function useStoreValue() {
     screenReaderMode: !!picked.sr,
     largeText: !!picked.big,
     catalog, catalogLoading, catalogError, loadPage,
-    results, clearResults: () => setResults(null),
+    results, resultsLoading,
     sessionId, sessionList, msgs, sending, send, newSession, openSession,
     cart, cartCount, cartBusy, refreshCart, setQuantity, addToCart, quantityOf,
     prefs, prefsError, refreshPrefs, togglePrefActive, forgetPref,
