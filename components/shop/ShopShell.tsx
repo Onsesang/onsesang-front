@@ -128,14 +128,17 @@ function Sidebar({ pane }: { pane: "list" | "chat" }) {
 
 function TabBar({ pane }: { pane: "list" | "chat" }) {
   const overlay = useOverlayNav();
-  const { cartCount } = useStore();
+  const { cartCount, results, resultsLoading } = useStore();
+  // On phones chat and list never share a screen, so 상품 shows what the open conversation
+  // found (its list header has 전체 보기 for the catalog); without results it is the catalog.
+  const productsHref = results?.length || resultsLoading ? "/products?view=results" : "/products";
 
   return (
     <nav className="tabbar" aria-label="하단 메뉴">
       <Link className="tab" href="/chat" aria-current={pane === "chat" ? "page" : undefined}>
         <ChatCircleIcon weight="bold" size={20} />대화
       </Link>
-      <Link className="tab" href="/products" aria-current={pane === "list" ? "page" : undefined}>
+      <Link className="tab" href={productsHref} aria-current={pane === "list" ? "page" : undefined}>
         <SquaresFourIcon weight="bold" size={20} />상품
       </Link>
       <button type="button" className="tab" onClick={() => overlay.open({ sheet: "prefs" })}>
